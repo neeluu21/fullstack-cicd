@@ -1,15 +1,43 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
 const COURSES = ["Computer Engineering", "IT", "Mechanical", "Civil", "Electrical"];
 const EMPTY = { name: "", rollNo: "", email: "", course: COURSES[0] };
+const COLORS = [
+  "linear-gradient(135deg,#6366f1,#8b5cf6)",
+  "linear-gradient(135deg,#ec4899,#f43f5e)",
+  "linear-gradient(135deg,#06b6d4,#3b82f6)",
+  "linear-gradient(135deg,#f59e0b,#ef4444)",
+  "linear-gradient(135deg,#10b981,#06b6d4)",
+];
+
+const colorFor = (text) => {
+  let sum = 0;
+  for (const ch of text) sum += ch.charCodeAt(0);
+  return COLORS[sum % COLORS.length];
+};
+
+const initials = (name) =>
+  name
+    .trim()
+    .split(/\s+/)
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 
 function App() {
   const [form, setForm] = useState(EMPTY);
   const [students, setStudents] = useState([]);
   const [editId, setEditId] = useState(null);
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState(null); // { ok: true/false, text }
+  const [courseFilter, setCourseFilter] = useState("All");
+  const [toast, setToast] = useState(null);
+
+  const showToast = (ok, text) => {
+    setToast({ ok, text });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   const loadStudents = () => {
     fetch("/api/students")
@@ -35,15 +63,15 @@ function App() {
       });
       const data = await res.json();
       if (data.saved) {
-        setStatus({ ok: true, text: `Saved in database: true` });
+        showToast(true, "Saved in database: true");
         setForm(EMPTY);
         setEditId(null);
         loadStudents();
       } else {
-        setStatus({ ok: false, text: `Saved in database: false (${data.error})` });
+        showToast(false, `Saved in database: false (${data.error})`);
       }
     } catch {
-      setStatus({ ok: false, text: "Saved in database: false (backend not reachable)" });
+      showToast(false, "Saved in database: false (backend not reachable)");
     }
   };
 
@@ -61,91 +89,153 @@ function App() {
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this student?")) return;
     await fetch(`/api/students/${id}`, { method: "DELETE" });
+    showToast(true, "Student deleted");
     loadStudents();
   };
 
-  const filtered = students.filter((s) =>
-    `${s.name} ${s.rollNo} ${s.email} ${s.course}`
-      .toLowerCase()
-      .includes(search.toLowerCase())
+  const filtered = useMemo(
+    () =>
+      students.filter((s) => {
+        const matchCourse = courseFilter === "All" || s.course === courseFilter;
+        const matchText = `${s.name} ${s.rollNo} ${s.email}`
+          .toLowerCase()
+          .includes(search.toLowerCase());
+        return matchCourse && matchText;
+      }),
+    [students, search, courseFilter]
   );
 
+  const usedCourses = new Set(students.map((s) => s.course)).size;
+  const latest = students[0] ? students[0].name : "-";
+
   return (
-    <div className="page">
-      <header>
-        <h1>Student Management</h1>
-        <p>React · Node.js · MongoDB · Docker · GitHub Actions · AWS EC2</p>
-      </header>
+    <>
+      <div className="bg">
+        <div className="blob b1" />
+        <div className="blob b2" />
+        <div className="blob b3" />
+      </div>
 
-      <section className="card">
-        <h2>{editId ? "Edit Student" : "Add Student"}</h2>
-        <form onSubmit={handleSubmit} className="form">
-          <input name="name" placeholder="Full name" value={form.name} onChange={handleChange} required />
-          <input name="rollNo" placeholder="Roll number" value={form.rollNo} onChange={handleChange} required />
-          <input name="email" type="email" placeholder="Email" value={form.email} onChange={handleChange} required />
-          <select name="course" value={form.course} onChange={handleChange}>
-            {COURSES.map((c) => (
-              <option key={c}>{c}</option>
+      <div className="page">
+        <header className="hero">
+          <h1>Student Management</h1>
+          <p>A full-stack app deployed automatically with CI/CD</p>
+          <div className="tags">
+            {["React", "Node.js", "MongoDB", "Docker", "GitHub Actions", "AWS EC2"].map((t) => (
+              <span className="tag" key={t}>{t}</span>
             ))}
-          </select>
-          <div className="actions">
-            <button type="submit" className="btn primary">
-              {editId ? "Update" : "Save"}
-            </button>
-            {editId && (
-              <button type="button" className="btn" onClick={handleCancel}>
-                Cancel
-              </button>
-            )}
           </div>
-        </form>
-        {status && <p className={status.ok ? "msg ok" : "msg err"}>{status.text}</p>}
-      </section>
+        </header>
 
-      <section className="card">
-        <div className="table-head">
-          <h2>Students ({filtered.length})</h2>
-          <input
-            className="search"
-            placeholder="Search..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        <div className="stats">
+          <div className="stat">
+            <div className="num">{students.length}</div>
+            <div className="label">Total students</div>
+          </div>
+          <div className="stat">
+            <div className="num">{usedCourses}</div>
+            <div className="label">Courses in use</div>
+          </div>
+          <div className="stat">
+            <div className="num small">{latest}</div>
+            <div className="label">Latest added</div>
+          </div>
         </div>
 
-        {filtered.length === 0 ? (
-          <p className="empty">No students found.</p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Name</th>
-                <th>Roll No</th>
-                <th>Email</th>
-                <th>Course</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((s, i) => (
-                <tr key={s._id}>
-                  <td>{i + 1}</td>
-                  <td>{s.name}</td>
-                  <td>{s.rollNo}</td>
-                  <td>{s.email}</td>
-                  <td>{s.course}</td>
-                  <td>
-                    <button className="btn small" onClick={() => handleEdit(s)}>Edit</button>
-                    <button className="btn small danger" onClick={() => handleDelete(s._id)}>Delete</button>
-                  </td>
-                </tr>
+        <section className="glass">
+          <h2>{editId ? "Edit student" : "Add a new student"}</h2>
+          <form className="form" onSubmit={handleSubmit}>
+            <div className="field">
+              <label>Full name</label>
+              <input name="name" placeholder="e.g. Neel Patel" value={form.name} onChange={handleChange} required />
+            </div>
+            <div className="field">
+              <label>Roll number</label>
+              <input name="rollNo" placeholder="e.g. 101" value={form.rollNo} onChange={handleChange} required />
+            </div>
+            <div className="field">
+              <label>Email</label>
+              <input name="email" type="email" placeholder="name@example.com" value={form.email} onChange={handleChange} required />
+            </div>
+            <div className="field">
+              <label>Course</label>
+              <select name="course" value={form.course} onChange={handleChange}>
+                {COURSES.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div className="actions">
+              <button type="submit" className="btn primary">
+                {editId ? "Update student" : "Save student"}
+              </button>
+              {editId && (
+                <button type="button" className="btn" onClick={handleCancel}>
+                  Cancel
+                </button>
+              )}
+            </div>
+          </form>
+        </section>
+
+        <section className="glass">
+          <div className="toolbar">
+            <h2>Students ({filtered.length})</h2>
+            <input
+              className="search"
+              placeholder="Search name, roll no, email..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="chips">
+            {["All", ...COURSES].map((c) => (
+              <button
+                key={c}
+                className={courseFilter === c ? "chip active" : "chip"}
+                onClick={() => setCourseFilter(c)}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+
+          {filtered.length === 0 ? (
+            <div className="empty">
+              <div className="big">🎓</div>
+              <p>No students found. Add your first one above.</p>
+            </div>
+          ) : (
+            <div className="grid">
+              {filtered.map((s) => (
+                <div className="student" key={s._id}>
+                  <div className="s-top">
+                    <div className="avatar" style={{ background: colorFor(s.name) }}>
+                      {initials(s.name)}
+                    </div>
+                    <div>
+                      <div className="s-name">{s.name}</div>
+                      <div className="s-roll">Roll No: {s.rollNo}</div>
+                    </div>
+                  </div>
+                  <div className="s-email">{s.email}</div>
+                  <span className="badge">{s.course}</span>
+                  <div className="s-actions">
+                    <button className="btn sm" onClick={() => handleEdit(s)}>Edit</button>
+                    <button className="btn sm danger" onClick={() => handleDelete(s._id)}>Delete</button>
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-    </div>
+            </div>
+          )}
+        </section>
+
+        <div className="footer">Deployed with GitHub Actions to AWS EC2</div>
+      </div>
+
+      {toast && <div className={toast.ok ? "toast ok" : "toast err"}>{toast.text}</div>}
+    </>
   );
 }
 
