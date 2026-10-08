@@ -1,241 +1,956 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 
-const COURSES = ["Computer Engineering", "IT", "Mechanical", "Civil", "Electrical"];
-const EMPTY = { name: "", rollNo: "", email: "", course: COURSES[0] };
-const COLORS = [
-  "linear-gradient(135deg,#6366f1,#8b5cf6)",
-  "linear-gradient(135deg,#ec4899,#f43f5e)",
-  "linear-gradient(135deg,#06b6d4,#3b82f6)",
-  "linear-gradient(135deg,#f59e0b,#ef4444)",
-  "linear-gradient(135deg,#10b981,#06b6d4)",
+const COURSES = [
+  "Computer Engineering",
+  "Information Technology",
+  "Mechanical",
+  "Civil",
+  "Electrical",
 ];
 
-const colorFor = (text) => {
-  let sum = 0;
-  for (const ch of text) sum += ch.charCodeAt(0);
-  return COLORS[sum % COLORS.length];
+const initialForm = {
+  name: "",
+  rollNo: "",
+  email: "",
+  course: "Computer Engineering",
 };
 
-const initials = (name) =>
-  name
-    .trim()
-    .split(/\s+/)
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-
 function App() {
-  const [form, setForm] = useState(EMPTY);
   const [students, setStudents] = useState([]);
-  const [editId, setEditId] = useState(null);
+  const [form, setForm] = useState(initialForm);
   const [search, setSearch] = useState("");
-  const [courseFilter, setCourseFilter] = useState("All");
-  const [toast, setToast] = useState(null);
+  const [course, setCourse] = useState("All");
+  const [activePage, setActivePage] = useState("Dashboard");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
 
-  const showToast = (ok, text) => {
-    setToast({ ok, text });
-    setTimeout(() => setToast(null), 3000);
-  };
+  // -----------------------------
+  // GET STUDENTS
+  // -----------------------------
+  const loadStudents = async () => {
+    try {
+      setLoading(true);
 
-  const loadStudents = () => {
-    fetch("/api/students")
-      .then((res) => res.json())
-      .then((data) => setStudents(Array.isArray(data) ? data : []))
-      .catch(() => setStudents([]));
+      const response = await fetch("/api/students");
+
+      if (!response.ok) {
+        throw new Error("Failed to load students");
+      }
+
+      const data = await response.json();
+
+      if (Array.isArray(data)) {
+        setStudents(data);
+      } else if (Array.isArray(data.students)) {
+        setStudents(data.students);
+      } else {
+        setStudents([]);
+      }
+    } catch (error) {
+      console.error("Student API error:", error);
+      setStudents([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
     loadStudents();
   }, []);
 
-  const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
+  // -----------------------------
+  // INPUT CHANGE
+  // -----------------------------
+  const handleChange = (event) => {
+    const { name, value } = event.target;
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    const url = editId ? `/api/students/${editId}` : "/api/students";
+    setForm((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
+  };
+
+  // -----------------------------
+  // ADD STUDENT
+  // -----------------------------
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    if (!form.name || !form.rollNo || !form.email) {
+      setMessage("Please fill in all required fields.");
+      return;
+    }
+
     try {
-      const res = await fetch(url, {
-        method: editId ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
+      setSaving(true);
+      setMessage("");
+
+      const response = await fetch("/api/students", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(form),
       });
-      const data = await res.json();
-      if (data.saved) {
-        showToast(true, "Saved in database: true");
-        setForm(EMPTY);
-        setEditId(null);
-        loadStudents();
-      } else {
-        showToast(false, `Saved in database: false (${data.error})`);
+
+      if (!response.ok) {
+        throw new Error("Failed to create student");
       }
-    } catch {
-      showToast(false, "Saved in database: false (backend not reachable)");
+
+      const data = await response.json();
+
+      const newStudent = data.student || data;
+
+      setStudents((previous) => [
+        ...previous,
+        newStudent,
+      ]);
+
+      setForm(initialForm);
+
+      setMessage("Student added successfully.");
+
+      setTimeout(() => {
+        setMessage("");
+      }, 3000);
+    } catch (error) {
+      console.error("Create student error:", error);
+
+      setMessage(
+        "Unable to add student. Please check the backend."
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleEdit = (s) => {
-    setEditId(s._id);
-    setForm({ name: s.name, rollNo: s.rollNo, email: s.email, course: s.course });
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  // -----------------------------
+  // DELETE STUDENT
+  // -----------------------------
+  const deleteStudent = async (student) => {
+    const id = student._id || student.id;
+
+    if (!id) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete ${student.name}?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/students/${id}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Delete failed");
+      }
+
+      setStudents((previous) =>
+        previous.filter(
+          (item) =>
+            item._id !== id &&
+            item.id !== id
+        )
+      );
+    } catch (error) {
+      console.error("Delete error:", error);
+      setMessage("Unable to delete student.");
+    }
   };
 
-  const handleCancel = () => {
-    setEditId(null);
-    setForm(EMPTY);
-  };
+  // -----------------------------
+  // FILTER STUDENTS
+  // -----------------------------
+  const filteredStudents = useMemo(() => {
+    const query = search.toLowerCase().trim();
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Delete this student?")) return;
-    await fetch(`/api/students/${id}`, { method: "DELETE" });
-    showToast(true, "Student deleted");
-    loadStudents();
-  };
+    return students.filter((student) => {
+      const name =
+        student.name?.toLowerCase() || "";
 
-  const filtered = useMemo(
-    () =>
-      students.filter((s) => {
-        const matchCourse = courseFilter === "All" || s.course === courseFilter;
-        const matchText = `${s.name} ${s.rollNo} ${s.email}`
-          .toLowerCase()
-          .includes(search.toLowerCase());
-        return matchCourse && matchText;
-      }),
-    [students, search, courseFilter]
-  );
+      const rollNo =
+        String(student.rollNo || "").toLowerCase();
 
-  const usedCourses = new Set(students.map((s) => s.course)).size;
-  const latest = students[0] ? students[0].name : "-";
+      const email =
+        student.email?.toLowerCase() || "";
+
+      const studentCourse =
+        student.course || "";
+
+      const searchMatch =
+        !query ||
+        name.includes(query) ||
+        rollNo.includes(query) ||
+        email.includes(query);
+
+      const courseMatch =
+        course === "All" ||
+        studentCourse === course;
+
+      return searchMatch && courseMatch;
+    });
+  }, [students, search, course]);
+
+  // -----------------------------
+  // STATISTICS
+  // -----------------------------
+  const totalStudents = students.length;
+
+  const activeCourses = new Set(
+    students
+      .map((student) => student.course)
+      .filter(Boolean)
+  ).size;
+
+  const latestStudent =
+    students.length > 0
+      ? students[students.length - 1]
+      : null;
+
+  // -----------------------------
+  // NAVIGATION
+  // -----------------------------
+  const navigation = [
+    {
+      name: "Dashboard",
+      icon: "⌂",
+    },
+    {
+      name: "Students",
+      icon: "♙",
+    },
+    {
+      name: "Add Student",
+      icon: "+",
+    },
+  ];
 
   return (
-    <>
-      <div className="bg">
-        <div className="blob b1" />
-        <div className="blob b2" />
-        <div className="blob b3" />
-      </div>
+    <div className="app">
 
-      <div className="page">
-        <header className="hero">
-          <h1>Student Management</h1>
-          <p>A full-stack app deployed automatically with CI/CD</p>
-          <div className="tags">
-            {["React", "Node.js", "MongoDB", "Docker", "GitHub Actions", "AWS EC2"].map((t) => (
-              <span className="tag" key={t}>{t}</span>
-            ))}
-          </div>
-        </header>
+      {/* ==========================================
+          SIDEBAR
+      ========================================== */}
 
-        <div className="stats">
-          <div className="stat">
-            <div className="num">{students.length}</div>
-            <div className="label">Total students</div>
+      <aside className="sidebar">
+
+        <div className="logo-area">
+
+          <div className="logo">
+            SH
           </div>
-          <div className="stat">
-            <div className="num">{usedCourses}</div>
-            <div className="label">Courses in use</div>
+
+          <div>
+            <h2>
+              Student<span>Hub</span>
+            </h2>
+
+            <p>
+              Management System
+            </p>
           </div>
-          <div className="stat">
-            <div className="num small">{latest}</div>
-            <div className="label">Latest added</div>
-          </div>
+
         </div>
 
-        <section className="glass">
-          <h2>{editId ? "Edit student" : "Add a new student"}</h2>
-          <form className="form" onSubmit={handleSubmit}>
-            <div className="field">
-              <label>Full name</label>
-              <input name="name" placeholder="e.g. Neel Patel" value={form.name} onChange={handleChange} required />
-            </div>
-            <div className="field">
-              <label>Roll number</label>
-              <input name="rollNo" placeholder="e.g. 101" value={form.rollNo} onChange={handleChange} required />
-            </div>
-            <div className="field">
-              <label>Email</label>
-              <input name="email" type="email" placeholder="name@example.com" value={form.email} onChange={handleChange} required />
-            </div>
-            <div className="field">
-              <label>Course</label>
-              <select name="course" value={form.course} onChange={handleChange}>
-                {COURSES.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
-            </div>
-            <div className="actions">
-              <button type="submit" className="btn primary">
-                {editId ? "Update student" : "Save student"}
-              </button>
-              {editId && (
-                <button type="button" className="btn" onClick={handleCancel}>
-                  Cancel
-                </button>
+        <div className="menu-title">
+          MAIN MENU
+        </div>
+
+        <nav className="navigation">
+
+          {navigation.map((item) => (
+            <button
+              key={item.name}
+              className={`nav-button ${
+                activePage === item.name
+                  ? "active"
+                  : ""
+              }`}
+              onClick={() =>
+                setActivePage(item.name)
+              }
+            >
+              <span className="nav-icon">
+                {item.icon}
+              </span>
+
+              <span>
+                {item.name}
+              </span>
+
+              {item.name === "Students" && (
+                <span className="count">
+                  {students.length}
+                </span>
               )}
-            </div>
-          </form>
-        </section>
+            </button>
+          ))}
 
-        <section className="glass">
-          <div className="toolbar">
-            <h2>Students ({filtered.length})</h2>
-            <input
-              className="search"
-              placeholder="Search name, roll no, email..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+        </nav>
+
+        <div className="sidebar-footer">
+
+          <div className="server-status">
+
+            <span className="online-dot"></span>
+
+            <div>
+              <strong>
+                System Online
+              </strong>
+
+              <small>
+                API & Database connected
+              </small>
+            </div>
+
           </div>
 
-          <div className="chips">
-            {["All", ...COURSES].map((c) => (
-              <button
-                key={c}
-                className={courseFilter === c ? "chip active" : "chip"}
-                onClick={() => setCourseFilter(c)}
-              >
-                {c}
-              </button>
-            ))}
+          <div className="admin">
+
+            <div className="admin-avatar">
+              NS
+            </div>
+
+            <div>
+              <strong>
+                Neel Solanki
+              </strong>
+
+              <small>
+                Administrator
+              </small>
+            </div>
+
           </div>
 
-          {filtered.length === 0 ? (
-            <div className="empty">
-              <div className="big">🎓</div>
-              <p>No students found. Add your first one above.</p>
+        </div>
+
+      </aside>
+
+      {/* ==========================================
+          MAIN
+      ========================================== */}
+
+      <main className="main">
+
+        {/* TOP HEADER */}
+
+        <header className="header">
+
+          <div>
+
+            <div className="breadcrumb">
+              StudentHub
+              <span>/</span>
+              {activePage}
             </div>
-          ) : (
-            <div className="grid">
-              {filtered.map((s) => (
-                <div className="student" key={s._id}>
-                  <div className="s-top">
-                    <div className="avatar" style={{ background: colorFor(s.name) }}>
-                      {initials(s.name)}
-                    </div>
-                    <div>
-                      <div className="s-name">{s.name}</div>
-                      <div className="s-roll">Roll No: {s.rollNo}</div>
-                    </div>
-                  </div>
-                  <div className="s-email">{s.email}</div>
-                  <span className="badge">{s.course}</span>
-                  <div className="s-actions">
-                    <button className="btn sm" onClick={() => handleEdit(s)}>Edit</button>
-                    <button className="btn sm danger" onClick={() => handleDelete(s._id)}>Delete</button>
-                  </div>
+
+            <h1>
+              {activePage === "Dashboard"
+                ? "Welcome back, Neel 👋"
+                : activePage}
+            </h1>
+
+            <p>
+              {activePage === "Dashboard"
+                ? "Manage your students from one simple dashboard."
+                : "Manage your student information and records."}
+            </p>
+
+          </div>
+
+          <button
+            className="add-top-button"
+            onClick={() =>
+              setActivePage("Add Student")
+            }
+          >
+            <span>+</span>
+            Add Student
+          </button>
+
+        </header>
+
+        {/* ==========================================
+            DASHBOARD
+        ========================================== */}
+
+        {activePage === "Dashboard" && (
+          <>
+
+            <section className="stats">
+
+              <div className="stat purple">
+
+                <div className="stat-icon">
+                  ♙
                 </div>
-              ))}
-            </div>
-          )}
-        </section>
 
-        <div className="footer">Deployed with GitHub Actions to AWS EC2</div>
+                <div className="stat-content">
+                  <span>
+                    Total Students
+                  </span>
+
+                  <strong>
+                    {totalStudents}
+                  </strong>
+
+                  <small>
+                    Registered students
+                  </small>
+                </div>
+
+              </div>
+
+              <div className="stat blue">
+
+                <div className="stat-icon">
+                  ◈
+                </div>
+
+                <div className="stat-content">
+                  <span>
+                    Active Courses
+                  </span>
+
+                  <strong>
+                    {activeCourses}
+                  </strong>
+
+                  <small>
+                    Courses currently used
+                  </small>
+                </div>
+
+              </div>
+
+              <div className="stat green">
+
+                <div className="stat-icon">
+                  ✓
+                </div>
+
+                <div className="stat-content">
+                  <span>
+                    System Status
+                  </span>
+
+                  <strong>
+                    Online
+                  </strong>
+
+                  <small>
+                    Backend services running
+                  </small>
+                </div>
+
+              </div>
+
+              <div className="stat orange">
+
+                <div className="stat-icon">
+                  ◷
+                </div>
+
+                <div className="stat-content">
+                  <span>
+                    Latest Student
+                  </span>
+
+                  <strong className="latest">
+                    {latestStudent?.name || "None"}
+                  </strong>
+
+                  <small>
+                    {latestStudent?.course ||
+                      "No students yet"}
+                  </small>
+                </div>
+
+              </div>
+
+            </section>
+
+            <StudentSection
+              students={filteredStudents.slice(0, 5)}
+              loading={loading}
+              search={search}
+              setSearch={setSearch}
+              course={course}
+              setCourse={setCourse}
+              deleteStudent={deleteStudent}
+              setActivePage={setActivePage}
+            />
+
+          </>
+        )}
+
+        {/* ==========================================
+            STUDENTS
+        ========================================== */}
+
+        {activePage === "Students" && (
+          <StudentSection
+            students={filteredStudents}
+            loading={loading}
+            search={search}
+            setSearch={setSearch}
+            course={course}
+            setCourse={setCourse}
+            deleteStudent={deleteStudent}
+            setActivePage={setActivePage}
+            full
+          />
+        )}
+
+        {/* ==========================================
+            ADD STUDENT
+        ========================================== */}
+
+        {activePage === "Add Student" && (
+
+          <section className="add-page">
+
+            <div className="add-info">
+
+              <div className="big-add-icon">
+                +
+              </div>
+
+              <h2>
+                Add New Student
+              </h2>
+
+              <p>
+                Add a student to your management
+                system and keep all records
+                organized in one place.
+              </p>
+
+              <div className="tip">
+
+                <span>
+                  💡
+                </span>
+
+                <div>
+                  <strong>
+                    Quick Tip
+                  </strong>
+
+                  <p>
+                    Use a unique roll number and
+                    email address for every student.
+                  </p>
+                </div>
+
+              </div>
+
+            </div>
+
+            <form
+              className="student-form"
+              onSubmit={handleSubmit}
+            >
+
+              <div className="form-heading">
+
+                <div>
+                  <h2>
+                    Student Information
+                  </h2>
+
+                  <p>
+                    Enter the details below.
+                  </p>
+                </div>
+
+                <span>
+                  REQUIRED *
+                </span>
+
+              </div>
+
+              <div className="form-grid">
+
+                <div className="field">
+
+                  <label>
+                    Full Name *
+                  </label>
+
+                  <input
+                    type="text"
+                    name="name"
+                    value={form.name}
+                    onChange={handleChange}
+                    placeholder="e.g. Neel Solanki"
+                    required
+                  />
+
+                </div>
+
+                <div className="field">
+
+                  <label>
+                    Roll Number *
+                  </label>
+
+                  <input
+                    type="text"
+                    name="rollNo"
+                    value={form.rollNo}
+                    onChange={handleChange}
+                    placeholder="e.g. 101"
+                    required
+                  />
+
+                </div>
+
+                <div className="field">
+
+                  <label>
+                    Email Address *
+                  </label>
+
+                  <input
+                    type="email"
+                    name="email"
+                    value={form.email}
+                    onChange={handleChange}
+                    placeholder="student@example.com"
+                    required
+                  />
+
+                </div>
+
+                <div className="field">
+
+                  <label>
+                    Course *
+                  </label>
+
+                  <select
+                    name="course"
+                    value={form.course}
+                    onChange={handleChange}
+                  >
+                    {COURSES.map((item) => (
+                      <option
+                        key={item}
+                        value={item}
+                      >
+                        {item}
+                      </option>
+                    ))}
+                  </select>
+
+                </div>
+
+              </div>
+
+              {message && (
+                <div className="message">
+                  {message}
+                </div>
+              )}
+
+              <div className="form-actions">
+
+                <button
+                  type="button"
+                  className="clear-button"
+                  onClick={() => {
+                    setForm(initialForm);
+                    setMessage("");
+                  }}
+                >
+                  Clear
+                </button>
+
+                <button
+                  type="submit"
+                  className="save-button"
+                  disabled={saving}
+                >
+                  {saving
+                    ? "Saving..."
+                    : "Save Student →"}
+                </button>
+
+              </div>
+
+            </form>
+
+          </section>
+
+        )}
+
+        <footer className="footer">
+          <span>
+            © 2026 StudentHub
+          </span>
+
+          <span>
+            React • Node.js • MongoDB • Docker • AWS
+          </span>
+        </footer>
+
+      </main>
+
+    </div>
+  );
+}
+
+
+/* ======================================================
+   STUDENT SECTION
+====================================================== */
+
+function StudentSection({
+  students,
+  loading,
+  search,
+  setSearch,
+  course,
+  setCourse,
+  deleteStudent,
+  setActivePage,
+  full = false,
+}) {
+  return (
+
+    <section
+      className={`student-section ${
+        full ? "full" : ""
+      }`}
+    >
+
+      <div className="section-heading">
+
+        <div>
+          <h2>
+            Students
+          </h2>
+
+          <p>
+            View and manage student records.
+          </p>
+        </div>
+
+        {!full && (
+          <button
+            className="view-button"
+            onClick={() =>
+              setActivePage("Students")
+            }
+          >
+            View All →
+          </button>
+        )}
+
       </div>
 
-      {toast && <div className={toast.ok ? "toast ok" : "toast err"}>{toast.text}</div>}
-    </>
+      <div className="controls">
+
+        <div className="search">
+
+          <span>
+            ⌕
+          </span>
+
+          <input
+            type="text"
+            placeholder="Search name, roll number or email..."
+            value={search}
+            onChange={(event) =>
+              setSearch(event.target.value)
+            }
+          />
+
+        </div>
+
+        <div className="filters">
+
+          <button
+            className={
+              course === "All"
+                ? "selected"
+                : ""
+            }
+            onClick={() => setCourse("All")}
+          >
+            All
+          </button>
+
+          {COURSES.map((item) => (
+            <button
+              key={item}
+              className={
+                course === item
+                  ? "selected"
+                  : ""
+              }
+              onClick={() =>
+                setCourse(item)
+              }
+            >
+              {item ===
+              "Information Technology"
+                ? "IT"
+                : item.split(" ")[0]}
+            </button>
+          ))}
+
+        </div>
+
+      </div>
+
+      {loading ? (
+
+        <div className="loading">
+          <div className="spinner"></div>
+          Loading students...
+        </div>
+
+      ) : students.length === 0 ? (
+
+        <div className="empty">
+
+          <div className="empty-icon">
+            ♙
+          </div>
+
+          <h3>
+            No students found
+          </h3>
+
+          <p>
+            Add your first student to get started.
+          </p>
+
+          <button
+            onClick={() =>
+              setActivePage("Add Student")
+            }
+          >
+            + Add Student
+          </button>
+
+        </div>
+
+      ) : (
+
+        <div className="table-container">
+
+          <table>
+
+            <thead>
+
+              <tr>
+                <th>STUDENT</th>
+                <th>ROLL NO.</th>
+                <th>EMAIL</th>
+                <th>COURSE</th>
+                <th>ACTION</th>
+              </tr>
+
+            </thead>
+
+            <tbody>
+
+              {students.map((student, index) => (
+
+                <tr
+                  key={
+                    student._id ||
+                    student.id ||
+                    index
+                  }
+                >
+
+                  <td>
+
+                    <div className="student">
+
+                      <div className="student-avatar">
+                        {student.name
+                          ?.charAt(0)
+                          .toUpperCase() ||
+                          "S"}
+                      </div>
+
+                      <div>
+                        <strong>
+                          {student.name}
+                        </strong>
+
+                        <small>
+                          Student #{index + 1}
+                        </small>
+                      </div>
+
+                    </div>
+
+                  </td>
+
+                  <td>
+                    <span className="roll">
+                      {student.rollNo}
+                    </span>
+                  </td>
+
+                  <td>
+                    {student.email}
+                  </td>
+
+                  <td>
+
+                    <span className="course-badge">
+                      {student.course}
+                    </span>
+
+                  </td>
+
+                  <td>
+
+                    <button
+                      className="delete"
+                      onClick={() =>
+                        deleteStudent(student)
+                      }
+                      title="Delete"
+                    >
+                      ×
+                    </button>
+
+                  </td>
+
+                </tr>
+
+              ))}
+
+            </tbody>
+
+          </table>
+
+        </div>
+
+      )}
+
+    </section>
   );
 }
 
